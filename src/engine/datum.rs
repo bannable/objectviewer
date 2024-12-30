@@ -8,11 +8,11 @@ pub struct Datum(u32);
 
 impl Datum {
     pub fn from_parts(index: u16, id: u16) -> Datum {
-        Datum { 0: ((id as u32) << 16) | index as u32 } 
+        Datum(((id as u32) << 16) | index as u32) 
     }
 
     pub fn from_raw(handle: u32) -> Datum {
-        Datum { 0: handle } 
+        Datum(handle) 
     }
 
     pub fn get_index(&self) -> u16 {

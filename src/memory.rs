@@ -16,9 +16,9 @@ impl Memory {
 
         Memory {
             bytes: vec![0; capacity],
-            pid: pid,
-            virtual_address: virtual_address,
-            handle: handle
+            pid,
+            virtual_address,
+            handle
         }
     }
 

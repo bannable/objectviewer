@@ -344,11 +344,11 @@ pub fn build_snapshot(memory: &Memory) -> Option<EngineSnapshot> {
         let tag_entry: TagEntry = memory.read(tag_entry_ptr);
 
         // Also used for tag_index_to_tag_entry as both will be treated seperately but same.
-        if !tag_index_to_str.contains_key(&tag_entry.tag_index) {
+        if let std::collections::hash_map::Entry::Vacant(e) = tag_index_to_str.entry(tag_entry.tag_index) {
             let tag_path_ptr = Memory::fix_pointer(tag_entry.tag_path_ptr);
 
             if let Ok(value) = memory.read_str(tag_path_ptr) {
-                tag_index_to_str.insert(tag_entry.tag_index, value.to_string());
+                e.insert(value.to_string());
             }
 
             tag_index_to_tag_entry.insert(tag_entry.tag_index, tag_entry);
@@ -356,15 +356,15 @@ pub fn build_snapshot(memory: &Memory) -> Option<EngineSnapshot> {
     }
 
     Some(EngineSnapshot {
-        map_name: map_name,
+        map_name,
         object_header: object_manager,
         object_header_entries: object_pool_entries,
         object_entries: game_object_entries,
         player_header: player_manager,
         player_entries: player_pool_entries,
-        player_globals: player_globals,
-        game_globals: game_globals,
-        game_time_globals: game_time_globals,
+        player_globals,
+        game_globals,
+        game_time_globals,
         tags: tag_index_to_str,
         tag_entries: tag_index_to_tag_entry
     })
