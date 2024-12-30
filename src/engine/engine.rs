@@ -9,16 +9,7 @@ const HALO_OBJECT_POOL_HEADER_ADDR: u32 = 0x000B9370;
 const HALO_PLAYER_POOL_HEADER_ADDR: u32 = 0x00213C50;
 
 const HALO_TAG_HEADER_ADDR: u32 = 0x003A6000; 
-
 const HALO_PLAYER_GLOBALS_ADDR: u32 = 0x00214E00;
-const MAXIMUM_NUMBER_OF_LOCAL_PLAYERS: usize = 4;
-
-const NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS: usize = 4;
-const MAXIMUM_REGIONS_PER_OBJECT: usize = 8;
-
-// Halo 1 Xbox Max Objects
-const HALO_OBJECT_MAX_POOL_ENTRIES: usize = 2048;
-const HALO_PLAYER_MAX_POOL_ENTRIES: usize = 16;
 
 // Sanity check constants
 const DEAH: u32 = 1751474532;
@@ -26,6 +17,7 @@ const LIAT: u32 = 1952541036;
 const RNCS: u32 = 1935896178;
 
 // Halo Structs
+const MAXIMUM_NUMBER_OF_LOCAL_PLAYERS: usize = 4;
 
 #[derive(Debug)]
 #[repr(C)]
@@ -107,6 +99,9 @@ pub struct ObjectListHeader {
     pub header_tail: u32,
 }
 
+const NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS: usize = 4;
+const MAXIMUM_REGIONS_PER_OBJECT: usize = 8;
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct Object {
@@ -173,6 +168,23 @@ pub struct Object {
     pub unk_408: u32,
     pub unk_412: u32,
     pub unk_416: u32,
+}
+
+pub fn object_type_string(data_type: u8) -> &'static str {
+    match data_type {
+        0 => "bipd", // unit obje
+        1 => "vehi", // unit obje
+        2 => "weap", // item obje
+        3 => "eqip", // item obje
+        4 => "garb", // item obje
+        5 => "proj", // obje
+        6 => "scen", // obje
+        7 => "mach", // devi obje
+        8 => "ctrl", // devi obje
+        9 => "lifi", // devi obje
+        11 => "ssce", // obje
+        _ => "UNKNOWN"
+    }
 }
 
 // Application

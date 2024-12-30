@@ -4,7 +4,7 @@ mod memory;
 
 use std::ffi::OsStr;
 
-use engine::{build_snapshot, Datum, EngineSnapshot};
+use engine::{build_snapshot, object_type_string, Datum, EngineSnapshot};
 use glow::HasContext;
 use imgui::{Condition, Context, TableBgTarget, TableFlags, Ui};
 use imgui_glow_renderer::{glow, AutoRenderer};
@@ -166,7 +166,7 @@ fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
     }
 
     if let Some(main_window) = main_window {
-        if let Some(table) = ui.begin_table_with_flags("ObjectsTable", 10, TableFlags::SIZING_STRETCH_PROP) {
+        if let Some(table) = ui.begin_table_with_flags("ObjectsTable", 8, TableFlags::SIZING_STRETCH_PROP) {
             ui.table_setup_column("");
             ui.table_setup_column("Datum");
             ui.table_setup_column("Index");
@@ -174,12 +174,10 @@ fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
             ui.table_setup_column("Player");
             ui.table_setup_column("Coordinates");
             ui.table_setup_column("Tag Name");
-            ui.table_setup_column("Tag Class");
-            ui.table_setup_column("Tag Class Secondary");
-            ui.table_setup_column("Tag Class Tertiary");
+            ui.table_setup_column("Object Type");
             ui.table_headers_row();
 
-            for index in (0..snapshot.object_header.max_entries as usize).rev() {
+            for index in 0..snapshot.object_header.max_entries as usize {
                 ui.table_next_row();
 
                 let is_row_valid = snapshot.object_entries[index].is_some();
@@ -238,28 +236,7 @@ fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
                     ui.text(snapshot.tags.get(&game_object_entry.tag_index).unwrap_or(&"UNKNOWN".to_string()).split("\\").last().unwrap());
     
                     ui.table_next_column();        
-                    if let Some(entry) = snapshot.tag_entries.get(&game_object_entry.tag_index) {
-                        let tag_class = String::from_utf8_lossy(&entry.tag_class.to_le_bytes()).chars().rev().collect::<String>();
-                        ui.text(format!("{}", tag_class));
-                    } else {
-                        ui.text("");
-                    }
-                    
-                    ui.table_next_column();        
-                    if let Some(entry) = snapshot.tag_entries.get(&game_object_entry.tag_index) {
-                        let tag_class = String::from_utf8_lossy(&entry.tag_class_secondary.to_le_bytes()).chars().rev().collect::<String>();
-                        ui.text(format!("{}", tag_class));
-                    } else {
-                        ui.text("");
-                    }
-    
-                    ui.table_next_column();        
-                    if let Some(entry) = snapshot.tag_entries.get(&game_object_entry.tag_index) {
-                        let tag_class = String::from_utf8_lossy(&entry.tag_class_tertiary.to_le_bytes()).chars().rev().collect::<String>();
-                        ui.text(format!("{}", tag_class));
-                    } else {
-                        ui.text("");
-                    }    
+                    ui.text(object_type_string(object_pool_entry.data_type));
                 } else {
                     ui.table_set_column_index(0);
 
@@ -279,12 +256,6 @@ fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
 
                     ui.table_next_column();
                     ui.text("Free");
-
-                    ui.table_next_column();
-                    ui.text("");
-
-                    ui.table_next_column();
-                    ui.text("");
 
                     ui.table_next_column();
                     ui.text("");
@@ -373,9 +344,9 @@ fn draw_attach(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawConte
 fn start() {
     // Setup draw context
     let mut draw_context = DrawContext {
-        virtual_address: "254df5a0000".to_string(),
+        virtual_address: String::default(),
         memory: None,
-        target_index: 0
+        target_index: u32::MAX
     };
 
 
