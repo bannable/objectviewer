@@ -4,12 +4,12 @@ mod memory;
 
 use std::ffi::OsStr;
 
-use engine::{build_snapshot, DatumHandle, EngineSnapshot};
+use engine::{build_snapshot, Datum, EngineSnapshot};
 use glow::HasContext;
 use imgui::{Condition, Context, TableBgTarget, TableFlags, Ui};
 use imgui_glow_renderer::{glow, AutoRenderer};
 use imgui_sdl2_support::SdlPlatform;
-use memory::ProcessMemory;
+use memory::Memory;
 use sdl2::{
     event::Event,
     video::{GLProfile, Window},
@@ -23,7 +23,7 @@ static DARK_GREY: [f32; 4] = [0.14, 0.14, 0.14, 1.0];
 static WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
 struct DrawContext {
-    memory: Option<ProcessMemory>,
+    memory: Option<Memory>,
     virtual_address: String,
     target_index: u32
 }
@@ -36,7 +36,7 @@ fn glow_context(window: &Window) -> glow::Context {
 }
 
 fn print_player(ui: &Ui, snapshot: &EngineSnapshot, player_index: u16) {
-    if let Some(entry) = snapshot.player_pool_entries[player_index as usize].as_ref() {
+    if let Some(entry) = snapshot.player_entries[player_index as usize].as_ref() {
         let local_dead_player = &snapshot.player_globals.local_dead_players[player_index as usize];
 
         ui.text_colored(ORANGE, format!("Current Object Datum: {:#?}", entry.slave_unit_index));
@@ -47,12 +47,8 @@ fn print_player(ui: &Ui, snapshot: &EngineSnapshot, player_index: u16) {
             let index = entry.slave_unit_index.get_index() as usize;
     
             let mut found = false;
-            if snapshot.object_pool_entries.get(index).is_some() && 
-               snapshot.game_object_entries.get(index).is_some() && 
-               snapshot.object_pool_entries[index].as_ref().is_some() && 
-               snapshot.game_object_entries[index].as_ref().is_some() 
-            {
-                let game_object_entry = snapshot.game_object_entries[index].as_ref().unwrap();
+            if snapshot.object_entries.get(index).is_some() && snapshot.object_entries[index].as_ref().is_some() {
+                let game_object_entry = snapshot.object_entries[index].as_ref().unwrap();
 
                 ui.text_colored(ORANGE, format!("Position: X: {:.4} Y: {:.4} Z: {:.4}", game_object_entry.position[0], game_object_entry.position[1], game_object_entry.position[2]));
                 found = true;
@@ -72,12 +68,8 @@ fn print_player(ui: &Ui, snapshot: &EngineSnapshot, player_index: u16) {
         let index = handle.get_index() as usize;
 
         let mut found = false;
-        if snapshot.object_pool_entries.get(index).is_some() && 
-           snapshot.game_object_entries.get(index).is_some() && 
-           snapshot.object_pool_entries[index].as_ref().is_some() && 
-           snapshot.game_object_entries[index].as_ref().is_some() 
-        {
-            let game_object_entry = snapshot.game_object_entries[index].as_ref().unwrap();
+        if snapshot.object_entries.get(index).is_some() && snapshot.object_entries[index].as_ref().is_some() {
+            let game_object_entry = snapshot.object_entries[index].as_ref().unwrap();
 
             ui.text_colored(ORANGE, format!("Next Datum Position: X: {:.4} Y: {:.4} Z: {:.4}", game_object_entry.position[0], game_object_entry.position[1], game_object_entry.position[2]));
             found = true;
@@ -88,38 +80,27 @@ fn print_player(ui: &Ui, snapshot: &EngineSnapshot, player_index: u16) {
         }
     }
 
-    if let Some(entry) = snapshot.player_pool_entries[player_index as usize].as_ref() {
+    if let Some(_) = snapshot.player_entries[player_index as usize].as_ref() {
     } else { 
         ui.text_colored(ORANGE, format!("Last Unit Handle: None")) 
     }
 }
 
 fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
-    let memory_bytes = draw_context.memory.as_mut().unwrap().read();
-    let snapshot = build_snapshot(memory_bytes);
+    let memory = draw_context.memory.as_mut().unwrap();
+    memory.refresh();
+    let snapshot = build_snapshot(memory);
 
     // Do not render anything if the snapshot is invalid.
     let width = ui.io().display_size[0];
     let height = ui.io().display_size[1];
 
-    let mut max_object_count = 0;
     let mut first_free_index = 0;
-
     if let Some(snapshot) = &snapshot {
-        // Find the top of the object list
-        for index in (0..snapshot.object_pool_header.max_objects as usize).rev() {
-            if snapshot.object_pool_entries.get(index).is_some() {
-                if snapshot.object_pool_entries[index].is_some() {
-                    max_object_count = index;
-                    break;
-                }
-            }
-        }
-    
         // Find the first free entry in the object list?
         // Sometimes the next_object_index in the object_pool_header is not consistent with the next free entry in the object pool ???????????
-        for index in 0..snapshot.object_pool_header.max_objects as usize {
-            if snapshot.object_pool_entries[index].is_none() {
+        for (index, entry) in snapshot.object_entries.iter().enumerate() {
+            if entry.is_none() {
                 first_free_index = index;
                 break;
             }
@@ -139,8 +120,8 @@ fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
 
         if let Some(snapshot) = &snapshot {
             ui.text(" | ");
-            ui.text_colored(ORANGE, format!("Next Object Index: {} ({})", snapshot.object_pool_header.next_object_index, first_free_index));
-            ui.text_colored(ORANGE, format!("Next Object ID: {}", snapshot.object_pool_header.next_object_id));
+            ui.text_colored(ORANGE, format!("Next Object Index: {} ({})", snapshot.object_header.next_index, first_free_index));
+            ui.text_colored(ORANGE, format!("Next Object ID: {}", snapshot.object_header.next_id));
         }
     });    
 
@@ -174,7 +155,7 @@ fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
         ui.text_colored(ORANGE, format!("Teleported: {}", p.teleported));
 
         for player in &snapshot.player_globals.local_players {
-            if !player.is_invald() {
+            if !player.is_invalid() {
                 let player_index = player.get_index();
                 ui.text(format!("-------------- Player {} --------------", player_index));
                 print_player(ui, &snapshot, player_index);
@@ -192,158 +173,133 @@ fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
             ui.table_setup_column("ID");
             ui.table_setup_column("Player");
             ui.table_setup_column("Coordinates");
-            // ui.table_setup_column("Flags");
             ui.table_setup_column("Tag Name");
             ui.table_setup_column("Tag Class");
             ui.table_setup_column("Tag Class Secondary");
             ui.table_setup_column("Tag Class Tertiary");
             ui.table_headers_row();
 
-            for index in (0..=snapshot.object_pool_entries.len() as usize).rev() {
+            for index in (0..snapshot.object_header.max_entries as usize).rev() {
+                ui.table_next_row();
+
+                let is_row_valid = snapshot.object_entries[index].is_some();
                 let identity = ui.push_id_usize(index);
 
-                if snapshot.object_pool_entries.get(index).is_some() && 
-                   snapshot.game_object_entries.get(index).is_some()
-                {
-                    ui.table_next_row();
-
-                    if snapshot.object_pool_entries.get(index).is_some() && 
-                        snapshot.game_object_entries.get(index).is_some() && 
-                        snapshot.object_pool_entries[index].as_ref().is_some() && 
-                        snapshot.game_object_entries[index].as_ref().is_some() 
-                    {
-                        let object_pool_entry = snapshot.object_pool_entries[index].as_ref().unwrap();
-                        let game_object_entry = snapshot.game_object_entries[index].as_ref().unwrap();
+                if is_row_valid {
+                    let object_pool_entry = snapshot.object_header_entries[index].as_ref().unwrap();
+                    let game_object_entry = snapshot.object_entries[index].as_ref().unwrap();
     
-                        let datum_handle = DatumHandle::new_from_index_id(index as u16, object_pool_entry.id);
-
-                        ui.table_set_column_index(0);
-
-                        if ui.button(&"Set") {
-                            draw_context.target_index = index as u32;
-                        }
-                        
-                        if index == draw_context.target_index as usize {
-                            ui.table_set_bg_color(TableBgTarget::ROW_BG0, DARK_GREY);
-                        }
-
-                        ui.table_next_column();
-                        ui.text_colored(if first_free_index as usize == index { ORANGE } else { GREEN }, format!("{}", datum_handle.get_handle()));
-
-                        ui.table_next_column();
-                        ui.text_colored(if first_free_index as usize == index { ORANGE } else { GREEN }, format!("{}", index));
+                    let datum_handle = Datum::from_parts(index as u16, object_pool_entry.id);
     
-                        ui.table_next_column();
-                        ui.text_colored(
-                            if object_pool_entry.id == snapshot.object_pool_header.next_object_id { ORANGE } else { WHITE }, 
-                            format!("{:<5}", object_pool_entry.id )
-                        );
+                    ui.table_set_column_index(0);
     
-                        ui.table_next_column();
-                        if let Some(player_index) = snapshot.find_local_player_index_from_unit_index(index as u16) {
-                            ui.text_colored(GREEN, format!("{}", player_index))
-                        } else if let Some(local_dead_player_index) = snapshot.find_next_object_datum_player(datum_handle.clone()) {
-                            ui.text_colored(RED, format!("{}", local_dead_player_index));
-                        } else {
-                            ui.text("");
-                        }
-
-                        ui.table_next_column();
-                        let mut updated_position = game_object_entry.position.clone();
-
-                        if ui.input_float3(&"POS", &mut updated_position).build() {
-                            let manager = draw_context.memory.as_mut().unwrap();
-                            let base_ptr = u32::from_le_bytes([object_pool_entry.object_address[0], object_pool_entry.object_address[1], object_pool_entry.object_address[2], 0x0]);
-                            let game_object_pointer = base_ptr as usize - 0x18;
-
-                            manager.write((game_object_pointer + 0x24) as usize, &updated_position.get(0).as_ref().expect("Could not write X position").to_le_bytes());
-                            manager.write((game_object_pointer + 0x24 + 0x4) as usize, &updated_position.get(1).as_ref().expect("Could not write Y position").to_le_bytes());
-                            manager.write((game_object_pointer + 0x24 + 0x4 + 0x4) as usize, &updated_position.get(2).as_ref().expect("Could not write Z position").to_le_bytes());
-                        }
-
-                        
-                        /*
-                        ui.table_next_column();
-                        
-                        let mut flags = game_object_entry.flags.clone();
-                        if ui.input_scalar(format!("Flags{}", datum_handle.get_handle()), &mut flags).build() {
-                            let manager = draw_context.memory.as_mut().unwrap();
-                            let base_ptr = u32::from_le_bytes([object_pool_entry.object_address[0], object_pool_entry.object_address[1], object_pool_entry.object_address[2], 0x0]);
-                            let game_object_pointer = base_ptr as usize - 0x18;
-
-                            manager.write((game_object_pointer + 0x1C) as usize, &flags.to_le_bytes());
-
-                        }
-                        */
-
-                        ui.table_next_column();
-                        ui.text(format!("{}", snapshot.tags.get(&game_object_entry.tag_index).unwrap_or(&"UNKNOWN".to_string())));
-
-                        ui.table_next_column();        
-                        if let Some(entry) = snapshot.tag_entries.get(&game_object_entry.tag_index) {
-                            let tag_class = String::from_utf8_lossy(&entry.tag_class).chars().rev().collect::<String>();
-                            ui.text(format!("{}", tag_class));
-                        } else {
-                            ui.text("");
-                        }
-                        
-                        ui.table_next_column();        
-                        if let Some(entry) = snapshot.tag_entries.get(&game_object_entry.tag_index) {
-                            let tag_class = String::from_utf8_lossy(&entry.tag_class_secondary).chars().rev().collect::<String>();
-                            ui.text(format!("{}", tag_class));
-                        } else {
-                            ui.text("");
-                        }
-
-                        ui.table_next_column();        
-                        if let Some(entry) = snapshot.tag_entries.get(&game_object_entry.tag_index) {
-                            let tag_class = String::from_utf8_lossy(&entry.tag_class_tertiary).chars().rev().collect::<String>();
-                            ui.text(format!("{}", tag_class));
-                        } else {
-                            ui.text("");
-                        }
+                    if ui.button(&"Set") {
+                        draw_context.target_index = index as u32;
+                    }
+                    
+                    if index == draw_context.target_index as usize {
+                        ui.table_set_bg_color(TableBgTarget::ROW_BG0, DARK_GREY);
+                    }
     
+                    ui.table_next_column();
+                    ui.text_colored(if first_free_index as usize == index { ORANGE } else { GREEN }, format!("{}", datum_handle.get_handle()));
+    
+                    ui.table_next_column();
+                    ui.text_colored(if first_free_index as usize == index { ORANGE } else { GREEN }, format!("{}", index));
+    
+                    ui.table_next_column();
+                    ui.text_colored(
+                        if object_pool_entry.id == snapshot.object_header.next_id { ORANGE } else { WHITE }, 
+                        format!("{:<5}", object_pool_entry.id )
+                    );
+    
+                    ui.table_next_column();
+                    if let Some(player_index) = snapshot.find_local_player_index_from_unit_index(index as u16) {
+                        ui.text_colored(GREEN, format!("{}", player_index))
+                    } else if let Some(local_dead_player_index) = snapshot.find_next_object_datum_player(datum_handle.clone()) {
+                        ui.text_colored(RED, format!("{}", local_dead_player_index));
                     } else {
-                        ui.table_set_column_index(0);
-
-                        if ui.button(&"Set") {
-                            draw_context.target_index = index as u32;
-                        }
-
-                        if index == draw_context.target_index as usize {
-                            ui.table_set_bg_color(TableBgTarget::ROW_BG0, DARK_GREY);
-                        }
-
-                        ui.table_next_column();
-                        ui.text("");
-
-                        ui.table_next_column();
-                        ui.text_colored(if first_free_index as usize == index { ORANGE } else { RED }, format!("{}", index));
-    
-                        ui.table_next_column();
-                        ui.text("Free");
-
-                        ui.table_next_column();
-                        ui.text("");
-
-                        ui.table_next_column();
-                        ui.text("");
-
-                        ui.table_next_column();
-                        ui.text("");
-
-                        ui.table_next_column();
-                        ui.text("");
-
-                        ui.table_next_column();
-                        ui.text("");
-
-                        ui.table_next_column();
                         ui.text("");
                     }
+    
+                    ui.table_next_column();
+                    let mut updated_position = game_object_entry.position.clone();
+    
+                    if ui.input_float3(&"POS", &mut updated_position).build() {
+                        let manager = draw_context.memory.as_mut().unwrap();
+                        let game_object_pointer = Memory::fix_pointer(object_pool_entry.object_address);
+    
+                        manager.write(game_object_pointer + 0xC, &updated_position.get(0).as_ref().expect("Could not write X position").to_le_bytes());
+                        manager.write(game_object_pointer + 0xC + 0x4, &updated_position.get(1).as_ref().expect("Could not write Y position").to_le_bytes());
+                        manager.write(game_object_pointer + 0xC + 0x4 + 0x4, &updated_position.get(2).as_ref().expect("Could not write Z position").to_le_bytes());
+                    }
+    
+                    ui.table_next_column();
+                    ui.text(snapshot.tags.get(&game_object_entry.tag_index).unwrap_or(&"UNKNOWN".to_string()).split("\\").last().unwrap());
+    
+                    ui.table_next_column();        
+                    if let Some(entry) = snapshot.tag_entries.get(&game_object_entry.tag_index) {
+                        let tag_class = String::from_utf8_lossy(&entry.tag_class.to_le_bytes()).chars().rev().collect::<String>();
+                        ui.text(format!("{}", tag_class));
+                    } else {
+                        ui.text("");
+                    }
+                    
+                    ui.table_next_column();        
+                    if let Some(entry) = snapshot.tag_entries.get(&game_object_entry.tag_index) {
+                        let tag_class = String::from_utf8_lossy(&entry.tag_class_secondary.to_le_bytes()).chars().rev().collect::<String>();
+                        ui.text(format!("{}", tag_class));
+                    } else {
+                        ui.text("");
+                    }
+    
+                    ui.table_next_column();        
+                    if let Some(entry) = snapshot.tag_entries.get(&game_object_entry.tag_index) {
+                        let tag_class = String::from_utf8_lossy(&entry.tag_class_tertiary.to_le_bytes()).chars().rev().collect::<String>();
+                        ui.text(format!("{}", tag_class));
+                    } else {
+                        ui.text("");
+                    }    
+                } else {
+                    ui.table_set_column_index(0);
 
-                    identity.pop();
+                    if ui.button(&"Set") {
+                        draw_context.target_index = index as u32;
+                    }
+
+                    if index == draw_context.target_index as usize {
+                        ui.table_set_bg_color(TableBgTarget::ROW_BG0, DARK_GREY);
+                    }
+
+                    ui.table_next_column();
+                    ui.text("");
+
+                    ui.table_next_column();
+                    ui.text_colored(if first_free_index as usize == index { ORANGE } else { RED }, format!("{}", index));
+
+                    ui.table_next_column();
+                    ui.text("Free");
+
+                    ui.table_next_column();
+                    ui.text("");
+
+                    ui.table_next_column();
+                    ui.text("");
+
+                    ui.table_next_column();
+                    ui.text("");
+
+                    ui.table_next_column();
+                    ui.text("");
+
+                    ui.table_next_column();
+                    ui.text("");
+
+                    ui.table_next_column();
+                    ui.text("");
                 }
+
+                identity.end();
             }
 
             table.end();
@@ -399,8 +355,9 @@ fn draw_attach(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawConte
 
             if ui.button("Set Virtual Address") {
                 if let Ok(value) = usize::from_str_radix(&draw_context.virtual_address, 16) {
+                    let mem = Memory::new(value, 67108864, process.pid().as_u32());
                     draw_context.memory = Some(
-                        ProcessMemory::new(value, 67108864, process.pid().as_u32())                        
+                        mem
                     );
                 }
             }
@@ -416,10 +373,11 @@ fn draw_attach(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawConte
 fn start() {
     // Setup draw context
     let mut draw_context = DrawContext {
-        virtual_address: String::default(),
+        virtual_address: "254df5a0000".to_string(),
         memory: None,
         target_index: 0
     };
+
 
     /* */
     /* initialize SDL and its video subsystem */
