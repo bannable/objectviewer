@@ -8,7 +8,7 @@ use super::{datum::Datum, EntityManager};
 const HALO_OBJECT_POOL_HEADER_ADDR: u32 = 0x000B9370;
 const HALO_PLAYER_POOL_HEADER_ADDR: u32 = 0x00213C50;
 
-const HALO_TAG_HEADER_ADDR: u32 = 0x003A6000; 
+const HALO_TAG_HEADER_ADDR: u32 = 0x003A6000;
 const HALO_PLAYER_GLOBALS_ADDR: u32 = 0x00214E00;
 const HALO_GAME_GLOBALS_ADDR: u32 = 0x611D4;
 const HALO_GAME_TIME_GLOBALS: u32 = 0x612E8;
@@ -28,7 +28,7 @@ pub struct GameOptions {
     pub unk_4: u16,
     pub difficulty: i16,
     pub random_seed: i32,
-    pub map_name: [u8; 256]
+    pub map_name: [u8; 256],
 }
 
 impl GameOptions {
@@ -37,7 +37,6 @@ impl GameOptions {
     }
 }
 
-  
 #[derive(Debug)]
 #[repr(C)]
 pub struct GameGlobals {
@@ -46,8 +45,8 @@ pub struct GameGlobals {
     pub players_double_speed: u8,
     pub map_loading: u8,
     pub map_load_progress: f32,
-    pub game_options: GameOptions
-}  
+    pub game_options: GameOptions,
+}
 
 #[derive(Debug)]
 #[repr(C)]
@@ -60,8 +59,8 @@ pub struct GameTimeGlobals {
     pub elapsed: u16,
     pub unk_18: [u8; 6],
     pub speed: f32,
-    pub leftover_dt: f32
-}  
+    pub leftover_dt: f32,
+}
 
 #[derive(Debug)]
 #[repr(C)]
@@ -78,7 +77,7 @@ pub struct PlayersGlobals {
     pub teleported: u8,
     pub unk_flags: u8,
     pub combined_pvs: [u8; 0x40],
-    pub combined_pvs_local: [u8; 0x40]
+    pub combined_pvs_local: [u8; 0x40],
 }
 
 #[derive(Debug)]
@@ -88,9 +87,9 @@ pub struct PlayerDataEntry {
     pub local_player_index: u16,
     pub player_name: [u16; 12],
     pub unknown_1: [i32; 6],
-    pub slave_unit_index: Datum, // datum
+    pub slave_unit_index: Datum,      // datum
     pub last_slave_unit_index: Datum, // datum
-    pub unknown_2: [u8; 150]
+    pub unknown_2: [u8; 150],
 }
 
 #[derive(Debug)]
@@ -103,7 +102,7 @@ pub struct TagEntry {
     tag_path_ptr: u32,
     tag_data_ptr: u32,
     unknown_1: u32,
-    unknown_2: u32
+    unknown_2: u32,
 }
 
 #[derive(Debug)]
@@ -118,7 +117,7 @@ pub struct TagHeader {
     index_count: u32,
     index_offset: u32,
     model_data_size: u32,
-    footer: u32 // tags backwards
+    footer: u32, // tags backwards
 }
 
 impl TagHeader {
@@ -135,14 +134,14 @@ pub struct ObjectHeaderEntry {
     pub data_type: u8,
     pub unknown_2: u16,
     pub data_sizeof: u16,
-    pub object_address: u32
+    pub object_address: u32,
 }
 
 #[derive(Debug)]
 #[repr(C)]
 pub struct ObjectListHeader {
     pub header_head: u32,
-    pub tag_id: u32, 
+    pub tag_id: u32,
     pub ptr_a: u32,
     pub ptr_next_object: u32,
     pub ptr_previous_object: u32,
@@ -222,18 +221,18 @@ pub struct Object {
 
 pub fn object_type_string(data_type: u8) -> &'static str {
     match data_type {
-        0 => "bipd", // unit obje
-        1 => "vehi", // unit obje
-        2 => "weap", // item obje
-        3 => "eqip", // item obje
-        4 => "garb", // item obje
-        5 => "proj", // obje
-        6 => "scen", // obje
-        7 => "mach", // devi obje
-        8 => "ctrl", // devi obje
-        9 => "lifi", // devi obje
+        0 => "bipd",  // unit obje
+        1 => "vehi",  // unit obje
+        2 => "weap",  // item obje
+        3 => "eqip",  // item obje
+        4 => "garb",  // item obje
+        5 => "proj",  // obje
+        6 => "scen",  // obje
+        7 => "mach",  // devi obje
+        8 => "ctrl",  // devi obje
+        9 => "lifi",  // devi obje
         11 => "ssce", // obje
-        _ => "UNKNOWN"
+        _ => "UNKNOWN",
     }
 }
 
@@ -244,13 +243,13 @@ pub struct EngineSnapshot {
     pub player_header: EntityManager<PlayerDataEntry>,
     pub player_entries: Vec<Option<PlayerDataEntry>>,
     pub object_header: EntityManager<ObjectHeaderEntry>,
-    pub object_header_entries: Vec<Option<ObjectHeaderEntry>>, 
+    pub object_header_entries: Vec<Option<ObjectHeaderEntry>>,
     pub object_entries: Vec<Option<Object>>,
     pub player_globals: PlayersGlobals,
     pub game_globals: GameGlobals,
     pub game_time_globals: GameTimeGlobals,
     pub tags: HashMap<u32, String>,
-    pub tag_entries: HashMap<u32, TagEntry>
+    pub tag_entries: HashMap<u32, TagEntry>,
 }
 
 impl EngineSnapshot {
@@ -258,8 +257,9 @@ impl EngineSnapshot {
     // Otherwise, during some AUP we would not see the proper assignments for players.
     pub fn find_local_player_index_from_unit_index(&self, unit_index: u16) -> Option<u16> {
         for player_pool_entry in self.player_entries.iter() {
-
-            if player_pool_entry.is_none() { continue; }
+            if player_pool_entry.is_none() {
+                continue;
+            }
             let player_pool_entry = player_pool_entry.as_ref().unwrap();
 
             if player_pool_entry.slave_unit_index.get_index() == unit_index {
@@ -271,7 +271,9 @@ impl EngineSnapshot {
     }
 
     pub fn find_next_object_datum_player(&self, object_handle: Datum) -> Option<usize> {
-        for (player_array_index, player_object_handle) in self.player_globals.local_dead_players.iter().enumerate() {
+        for (player_array_index, player_object_handle) in
+            self.player_globals.local_dead_players.iter().enumerate()
+        {
             let player_index = player_object_handle.get_index();
             let object_index = object_handle.get_index();
 
@@ -279,24 +281,32 @@ impl EngineSnapshot {
                 return Some(player_array_index);
             }
         }
-            
+
         None
     }
-
 }
 
 pub fn build_snapshot(memory: &Memory) -> Option<EngineSnapshot> {
     let tag_header: TagHeader = memory.read(HALO_TAG_HEADER_ADDR);
-    if !tag_header.is_valid() { return None; }
+    if !tag_header.is_valid() {
+        return None;
+    }
 
     let game_globals: GameGlobals = memory.read(HALO_GAME_GLOBALS_ADDR);
-    if !game_globals.game_options.is_valid() { return None; }
+    if !game_globals.game_options.is_valid() {
+        return None;
+    }
 
-    let object_manager: EntityManager<ObjectHeaderEntry> = memory.read(HALO_OBJECT_POOL_HEADER_ADDR);
-    if !object_manager.is_valid() { return None; }
+    let object_manager: EntityManager<ObjectHeaderEntry> =
+        memory.read(HALO_OBJECT_POOL_HEADER_ADDR);
+    if !object_manager.is_valid() {
+        return None;
+    }
 
     let player_manager: EntityManager<PlayerDataEntry> = memory.read(HALO_PLAYER_POOL_HEADER_ADDR);
-    if !player_manager.is_valid() { return None; }
+    if !player_manager.is_valid() {
+        return None;
+    }
 
     let object_pool_entries = object_manager.read(memory);
     let player_pool_entries = player_manager.read(memory);
@@ -304,8 +314,10 @@ pub fn build_snapshot(memory: &Memory) -> Option<EngineSnapshot> {
     let mut game_object_entries: Vec<_> = (0..object_manager.max_entries).map(|_| None).collect();
     for index in 0..object_manager.capacity as usize {
         let object_entry = &object_pool_entries[index];
-        if object_entry.is_none() { continue; }
-        
+        if object_entry.is_none() {
+            continue;
+        }
+
         let object_entry = object_entry.as_ref().unwrap();
         let object_address = Memory::fix_pointer(object_entry.object_address);
         if object_address != 0 && object_address >= size_of::<ObjectListHeader>() as u32 {
@@ -327,7 +339,8 @@ pub fn build_snapshot(memory: &Memory) -> Option<EngineSnapshot> {
 
     let mut map_name = String::default();
     if game_globals.map_loaded == 1 {
-        if let Ok(local_map_name) = CStr::from_bytes_until_nul(&game_globals.game_options.map_name) {
+        if let Ok(local_map_name) = CStr::from_bytes_until_nul(&game_globals.game_options.map_name)
+        {
             if let Ok(real_local_map_name) = local_map_name.to_str() {
                 map_name = real_local_map_name.to_string();
             }
@@ -344,7 +357,9 @@ pub fn build_snapshot(memory: &Memory) -> Option<EngineSnapshot> {
         let tag_entry: TagEntry = memory.read(tag_entry_ptr);
 
         // Also used for tag_index_to_tag_entry as both will be treated seperately but same.
-        if let std::collections::hash_map::Entry::Vacant(e) = tag_index_to_str.entry(tag_entry.tag_index) {
+        if let std::collections::hash_map::Entry::Vacant(e) =
+            tag_index_to_str.entry(tag_entry.tag_index)
+        {
             let tag_path_ptr = Memory::fix_pointer(tag_entry.tag_path_ptr);
 
             if let Ok(value) = memory.read_str(tag_path_ptr) {
@@ -366,6 +381,6 @@ pub fn build_snapshot(memory: &Memory) -> Option<EngineSnapshot> {
         game_globals,
         game_time_globals,
         tags: tag_index_to_str,
-        tag_entries: tag_index_to_tag_entry
+        tag_entries: tag_index_to_tag_entry,
     })
 }
