@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ffi::{CStr, CString}};
 
 use crate::memory::Memory;
 
@@ -10,6 +10,8 @@ const HALO_PLAYER_POOL_HEADER_ADDR: u32 = 0x00213C50;
 
 const HALO_TAG_HEADER_ADDR: u32 = 0x003A6000; 
 const HALO_PLAYER_GLOBALS_ADDR: u32 = 0x00214E00;
+const HALO_GAME_GLOBALS_ADDR: u32 = 0x611D4;
+const HALO_GAME_TIME_GLOBALS: u32 = 0x612E8;
 
 // Sanity check constants
 const DEAH: u32 = 1751474532;
@@ -18,6 +20,41 @@ const RNCS: u32 = 1935896178;
 
 // Halo Structs
 const MAXIMUM_NUMBER_OF_LOCAL_PLAYERS: usize = 4;
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct GameOptions {
+    pub unk_0: u32,
+    pub unk_4: u16,
+    pub difficulty: i16,
+    pub random_seed: i32,
+    pub map_name: [u8; 256]
+} 
+  
+#[derive(Debug)]
+#[repr(C)]
+pub struct GameGlobals {
+    pub map_loaded: u8,
+    pub active: u8,
+    pub players_double_speed: u8,
+    pub map_loading: u8,
+    pub map_load_progress: f32,
+    pub game_options: GameOptions
+}  
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct GameTimeGlobals {
+    pub initalized: u8,
+    pub active: u8,
+    pub paused: u8,
+    pub unk_3: [u8; 9],
+    pub local_time: u32,
+    pub elapsed: u16,
+    pub unk_18: [u8; 6],
+    pub speed: f32,
+    pub leftover_dt: f32
+}  
 
 #[derive(Debug)]
 #[repr(C)]
@@ -190,12 +227,15 @@ pub fn object_type_string(data_type: u8) -> &'static str {
 // Application
 #[derive(Debug)]
 pub struct EngineSnapshot {
+    pub map_name: String,
     pub player_header: EntityManager<PlayerDataEntry>,
     pub player_entries: Vec<Option<PlayerDataEntry>>,
     pub object_header: EntityManager<ObjectHeaderEntry>,
     pub object_header_entries: Vec<Option<ObjectHeaderEntry>>, 
     pub object_entries: Vec<Option<Object>>,
     pub player_globals: PlayersGlobals,
+    pub game_globals: GameGlobals,
+    pub game_time_globals: GameTimeGlobals,
     pub tags: HashMap<u32, String>,
     pub tag_entries: HashMap<u32, TagEntry>
 }
@@ -245,7 +285,7 @@ pub fn build_snapshot(memory: &Memory) -> Option<EngineSnapshot> {
     let object_pool_entries = object_manager.read(memory);
     let player_pool_entries = player_manager.read(memory);
 
-    let mut game_object_entries: Vec<_> = (0..object_pool_entries.len()).map(|_| None).collect(); // FIX ME
+    let mut game_object_entries: Vec<_> = (0..object_manager.max_entries).map(|_| None).collect();
     for index in 0..object_manager.capacity as usize {
         let object_entry = &object_pool_entries[index];
         if object_entry.is_none() { continue; }
@@ -267,7 +307,17 @@ pub fn build_snapshot(memory: &Memory) -> Option<EngineSnapshot> {
 
     // TODO: Find a way to sanity check this data
     let player_globals: PlayersGlobals = memory.read(HALO_PLAYER_GLOBALS_ADDR);
+    let game_globals: GameGlobals = memory.read(HALO_GAME_GLOBALS_ADDR);
+    let game_time_globals: GameTimeGlobals = memory.read(HALO_GAME_TIME_GLOBALS);
 
+    let mut map_name = String::default();
+    if game_globals.map_loaded == 1 {
+        if let Ok(local_map_name) = CStr::from_bytes_until_nul(&game_globals.game_options.map_name) {
+            if let Ok(real_local_map_name) = local_map_name.to_str() {
+                map_name = real_local_map_name.to_string();
+            }
+        }
+    }
     // Get tag index mappings to tag names
     // Also store the tag entries
     let mut tag_index_to_tag_entry: HashMap<u32, TagEntry> = HashMap::new();
@@ -291,12 +341,15 @@ pub fn build_snapshot(memory: &Memory) -> Option<EngineSnapshot> {
     }
 
     Some(EngineSnapshot {
+        map_name: map_name,
         object_header: object_manager,
         object_header_entries: object_pool_entries,
         object_entries: game_object_entries,
         player_header: player_manager,
         player_entries: player_pool_entries,
         player_globals: player_globals,
+        game_globals: game_globals,
+        game_time_globals: game_time_globals,
         tags: tag_index_to_str,
         tag_entries: tag_index_to_tag_entry
     })

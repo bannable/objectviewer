@@ -120,8 +120,13 @@ fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
 
         if let Some(snapshot) = &snapshot {
             ui.text(" | ");
-            ui.text_colored(ORANGE, format!("Next Object Index: {} ({})", snapshot.object_header.next_index, first_free_index));
-            ui.text_colored(ORANGE, format!("Next Object ID: {}", snapshot.object_header.next_id));
+            ui.text_colored(ORANGE, format!("Map Name: {}", snapshot.map_name));
+            ui.text_colored(ORANGE, format!("Tick: {}", snapshot.game_time_globals.local_time));
+            ui.text(" | ");
+            ui.text_colored(ORANGE, format!("Capacity: {}", snapshot.object_header.capacity));
+            ui.text_colored(ORANGE, format!("Size: {}", snapshot.object_header.size));
+            ui.text_colored(ORANGE, format!("Next Index: {} ({})", snapshot.object_header.next_index, first_free_index));
+            ui.text_colored(ORANGE, format!("Next ID: {}", snapshot.object_header.next_id));
         }
     });    
 
@@ -348,7 +353,6 @@ fn start() {
         memory: None,
         target_index: u32::MAX
     };
-
 
     /* */
     /* initialize SDL and its video subsystem */
