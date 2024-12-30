@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ffi::{CStr, CString}};
+use std::{collections::HashMap, ffi::CStr};
 
 use crate::memory::Memory;
 
@@ -29,7 +29,14 @@ pub struct GameOptions {
     pub difficulty: i16,
     pub random_seed: i32,
     pub map_name: [u8; 256]
-} 
+}
+
+impl GameOptions {
+    pub fn is_valid(&self) -> bool {
+        self.difficulty >= 0 && self.difficulty < 4
+    }
+}
+
   
 #[derive(Debug)]
 #[repr(C)]
@@ -112,6 +119,12 @@ pub struct TagHeader {
     index_offset: u32,
     model_data_size: u32,
     footer: u32 // tags backwards
+}
+
+impl TagHeader {
+    pub fn is_valid(&self) -> bool {
+        self.footer == RNCS
+    }
 }
 
 #[derive(Debug)]
@@ -274,7 +287,10 @@ impl EngineSnapshot {
 
 pub fn build_snapshot(memory: &Memory) -> Option<EngineSnapshot> {
     let tag_header: TagHeader = memory.read(HALO_TAG_HEADER_ADDR);
-    if tag_header.footer != RNCS { return None; }
+    if !tag_header.is_valid() { return None; }
+
+    let game_globals: GameGlobals = memory.read(HALO_GAME_GLOBALS_ADDR);
+    if !game_globals.game_options.is_valid() { return None; }
 
     let object_manager: EntityManager<ObjectHeaderEntry> = memory.read(HALO_OBJECT_POOL_HEADER_ADDR);
     if !object_manager.is_valid() { return None; }
@@ -307,7 +323,6 @@ pub fn build_snapshot(memory: &Memory) -> Option<EngineSnapshot> {
 
     // TODO: Find a way to sanity check this data
     let player_globals: PlayersGlobals = memory.read(HALO_PLAYER_GLOBALS_ADDR);
-    let game_globals: GameGlobals = memory.read(HALO_GAME_GLOBALS_ADDR);
     let game_time_globals: GameTimeGlobals = memory.read(HALO_GAME_TIME_GLOBALS);
 
     let mut map_name = String::default();

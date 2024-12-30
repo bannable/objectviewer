@@ -39,8 +39,7 @@ impl<T> EntityManager<T> {
             let index_ptr_addr = data_begin + (self.data_sizeof as u32 * index as u32);
             let id: u16 = memory.read(index_ptr_addr);
 
-            // TODO: Not entirely sure how this check is supposed to work, this might be wrong.
-            if id != 0 || (id == 0 && self.identifier_zero_invalid == 0) { 
+            if id != 0 || self.identifier_zero_invalid == 0 { 
                 let entry: T = memory.read(index_ptr_addr);
                 entries[index] = Some(entry);
             }
