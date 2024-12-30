@@ -121,7 +121,7 @@ fn print_player(ui: &Ui, snapshot: &EngineSnapshot, player_index: u16) {
 fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
     let memory = draw_context.memory.as_mut().unwrap();
     memory.refresh();
-    let snapshot = build_snapshot(memory);
+    let snapshot = build_snapshot(memory).ok();
 
     // Do not render anything if the snapshot is invalid.
     let width = ui.io().display_size[0];

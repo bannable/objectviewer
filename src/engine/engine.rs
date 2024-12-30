@@ -22,6 +22,14 @@ const RNCS: u32 = 1935896178;
 const MAXIMUM_NUMBER_OF_LOCAL_PLAYERS: usize = 4;
 
 #[derive(Debug)]
+pub enum EngineError {
+    TagHeader,
+    GameGlobals,
+    PlayerHeader,
+    ObjectHeader,
+}
+
+#[derive(Debug)]
 #[repr(C)]
 pub struct GameOptions {
     pub unk_0: u32,
@@ -48,6 +56,32 @@ pub struct GameGlobals {
     pub game_options: GameOptions,
 }
 
+impl TryFrom<&Memory> for GameGlobals {
+    type Error = EngineError;
+
+    fn try_from(memory: &Memory) -> Result<Self, Self::Error> {
+        let game_globals: GameGlobals = memory.read(HALO_GAME_GLOBALS_ADDR);
+        if game_globals.game_options.is_valid() {
+            Ok(game_globals)
+        } else {
+            Err(EngineError::GameGlobals)
+        }
+    }
+}
+
+impl GameGlobals {
+    pub fn get_map_name(&self) -> String {
+        if self.map_loaded == 1 {
+            if let Ok(local_map_name) = CStr::from_bytes_until_nul(&self.game_options.map_name) {
+                if let Ok(real_local_map_name) = local_map_name.to_str() {
+                    return real_local_map_name.to_string();
+                }
+            }
+        }
+        String::default()
+    }
+}
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct GameTimeGlobals {
@@ -60,6 +94,16 @@ pub struct GameTimeGlobals {
     pub unk_18: [u8; 6],
     pub speed: f32,
     pub leftover_dt: f32,
+}
+
+impl TryFrom<&Memory> for GameTimeGlobals {
+    type Error = EngineError;
+
+    fn try_from(memory: &Memory) -> Result<Self, Self::Error> {
+        let game_time_globals: GameTimeGlobals = memory.read(HALO_GAME_TIME_GLOBALS);
+        // Figure out how to validate this
+        Ok(game_time_globals)
+    }
 }
 
 #[derive(Debug)]
@@ -78,6 +122,17 @@ pub struct PlayersGlobals {
     pub unk_flags: u8,
     pub combined_pvs: [u8; 0x40],
     pub combined_pvs_local: [u8; 0x40],
+}
+
+impl TryFrom<&Memory> for PlayersGlobals {
+    type Error = EngineError;
+
+    fn try_from(memory: &Memory) -> Result<Self, Self::Error> {
+        let player_globals: PlayersGlobals = memory.read(HALO_PLAYER_GLOBALS_ADDR);
+        // Figure out how to validate this
+        // TODO: Maybe check if the player count is less than the maximum number of players? - ban
+        Ok(player_globals)
+    }
 }
 
 #[derive(Debug)]
@@ -126,6 +181,19 @@ impl TagHeader {
     }
 }
 
+impl TryFrom<&Memory> for TagHeader {
+    type Error = EngineError;
+
+    fn try_from(memory: &Memory) -> Result<Self, Self::Error> {
+        let tag_header: TagHeader = memory.read(HALO_TAG_HEADER_ADDR);
+        if tag_header.is_valid() {
+            Ok(tag_header)
+        } else {
+            Err(EngineError::TagHeader)
+        }
+    }
+}
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct ObjectHeaderEntry {
@@ -148,6 +216,40 @@ pub struct ObjectListHeader {
     pub header_tail: u32,
 }
 
+type ObjectHeader = EntityManager<ObjectHeaderEntry>;
+
+impl TryFrom<&Memory> for ObjectHeader {
+    type Error = EngineError;
+
+    fn try_from(memory: &Memory) -> Result<Self, Self::Error> {
+        let object_header: ObjectHeader = memory.read(HALO_OBJECT_POOL_HEADER_ADDR);
+        if object_header.is_valid() {
+            Ok(object_header)
+        } else {
+            Err(EngineError::ObjectHeader)
+        }
+    }
+}
+
+type ObjectHeaderEntries = Vec<Option<ObjectHeaderEntry>>;
+type ObjectEntries = Vec<Option<Object>>;
+
+type PlayerHeader = EntityManager<PlayerDataEntry>;
+
+impl TryFrom<&Memory> for PlayerHeader {
+    type Error = EngineError;
+
+    fn try_from(memory: &Memory) -> Result<Self, Self::Error> {
+        let player_header: PlayerHeader = memory.read(HALO_PLAYER_POOL_HEADER_ADDR);
+        if player_header.is_valid() {
+            Ok(player_header)
+        } else {
+            Err(EngineError::PlayerHeader)
+        }
+    }
+}
+
+type PlayerEntries = Vec<Option<PlayerDataEntry>>;
 const NUMBER_OF_OUTGOING_OBJECT_FUNCTIONS: usize = 4;
 const MAXIMUM_REGIONS_PER_OBJECT: usize = 8;
 
@@ -236,15 +338,16 @@ pub fn object_type_string(data_type: u8) -> &'static str {
     }
 }
 
+// TODO: This struct has a lot of fields to initialize, should implement a builder pattern
 // Application
 #[derive(Debug)]
 pub struct EngineSnapshot {
     pub map_name: String,
-    pub player_header: EntityManager<PlayerDataEntry>,
-    pub player_entries: Vec<Option<PlayerDataEntry>>,
-    pub object_header: EntityManager<ObjectHeaderEntry>,
-    pub object_header_entries: Vec<Option<ObjectHeaderEntry>>,
-    pub object_entries: Vec<Option<Object>>,
+    pub player_header: PlayerHeader,
+    pub player_entries: PlayerEntries,
+    pub object_header: ObjectHeader,
+    pub object_header_entries: ObjectHeaderEntries,
+    pub object_entries: ObjectEntries,
     pub player_globals: PlayersGlobals,
     pub game_globals: GameGlobals,
     pub game_time_globals: GameTimeGlobals,
@@ -284,103 +387,90 @@ impl EngineSnapshot {
 
         None
     }
+
+    fn read_object_entries(
+        memory: &Memory,
+        object_manager: &EntityManager<ObjectHeaderEntry>,
+    ) -> Vec<Option<Object>> {
+        let object_pool_entries = object_manager.read(memory);
+        let mut game_object_entries: Vec<_> =
+            (0..object_manager.max_entries).map(|_| None).collect();
+
+        for index in 0..object_manager.capacity as usize {
+            if let Some(object_entry) = &object_pool_entries[index] {
+                let object_address = Memory::fix_pointer(object_entry.object_address);
+                if object_address != 0 && object_address >= size_of::<ObjectListHeader>() as u32 {
+                    if let Some(game_object) = Self::read_game_object(memory, object_address) {
+                        game_object_entries[index] = Some(game_object);
+                    }
+                }
+            }
+        }
+
+        game_object_entries
+    }
+
+    fn read_game_object(memory: &Memory, object_address: u32) -> Option<Object> {
+        let object_list_header_ptr = object_address - size_of::<ObjectListHeader>() as u32;
+        let object_list_header: ObjectListHeader = memory.read(object_list_header_ptr);
+
+        if object_list_header.header_head == DEAH && object_list_header.header_tail == LIAT {
+            Some(memory.read(object_address))
+        } else {
+            None
+        }
+    }
+
+    fn read_tag_mappings(
+        memory: &Memory,
+        tag_header: &TagHeader,
+    ) -> (HashMap<u32, String>, HashMap<u32, TagEntry>) {
+        let mut tag_index_to_str = HashMap::new();
+        let mut tag_index_to_tag_entry = HashMap::new();
+        let tag_array_base_ptr = Memory::fix_pointer(tag_header.tag_array_ptr);
+
+        for index in 0..tag_header.tag_count {
+            let tag_entry_ptr = tag_array_base_ptr + (size_of::<TagEntry>() as u32 * index);
+            let tag_entry: TagEntry = memory.read(tag_entry_ptr);
+
+            if let std::collections::hash_map::Entry::Vacant(e) =
+                tag_index_to_str.entry(tag_entry.tag_index)
+            {
+                if let Ok(value) = memory.read_str(Memory::fix_pointer(tag_entry.tag_path_ptr)) {
+                    e.insert(value.to_string());
+                }
+                tag_index_to_tag_entry.insert(tag_entry.tag_index, tag_entry);
+            }
+        }
+
+        (tag_index_to_str, tag_index_to_tag_entry)
+    }
 }
 
-pub fn build_snapshot(memory: &Memory) -> Option<EngineSnapshot> {
-    let tag_header: TagHeader = memory.read(HALO_TAG_HEADER_ADDR);
-    if !tag_header.is_valid() {
-        return None;
-    }
+pub fn build_snapshot(memory: &Memory) -> Result<EngineSnapshot, EngineError> {
+    let tag_header = TagHeader::try_from(memory)?;
+    let game_globals = GameGlobals::try_from(memory)?;
+    let map_name = game_globals.get_map_name();
+    let object_header = ObjectHeader::try_from(memory)?;
+    let player_header = PlayerHeader::try_from(memory)?;
+    let player_globals = PlayersGlobals::try_from(memory)?;
+    let game_time_globals = GameTimeGlobals::try_from(memory)?;
+    let object_header_entries = object_header.read(memory);
+    let player_entries = player_header.read(memory);
+    let object_entries = EngineSnapshot::read_object_entries(memory, &object_header);
+    let (tags, tag_entries) = EngineSnapshot::read_tag_mappings(memory, &tag_header);
 
-    let game_globals: GameGlobals = memory.read(HALO_GAME_GLOBALS_ADDR);
-    if !game_globals.game_options.is_valid() {
-        return None;
-    }
-
-    let object_manager: EntityManager<ObjectHeaderEntry> =
-        memory.read(HALO_OBJECT_POOL_HEADER_ADDR);
-    if !object_manager.is_valid() {
-        return None;
-    }
-
-    let player_manager: EntityManager<PlayerDataEntry> = memory.read(HALO_PLAYER_POOL_HEADER_ADDR);
-    if !player_manager.is_valid() {
-        return None;
-    }
-
-    let object_pool_entries = object_manager.read(memory);
-    let player_pool_entries = player_manager.read(memory);
-
-    let mut game_object_entries: Vec<_> = (0..object_manager.max_entries).map(|_| None).collect();
-    for index in 0..object_manager.capacity as usize {
-        let object_entry = &object_pool_entries[index];
-        if object_entry.is_none() {
-            continue;
-        }
-
-        let object_entry = object_entry.as_ref().unwrap();
-        let object_address = Memory::fix_pointer(object_entry.object_address);
-        if object_address != 0 && object_address >= size_of::<ObjectListHeader>() as u32 {
-            let object_list_header_ptr = object_address - size_of::<ObjectListHeader>() as u32;
-            let object_list_header: ObjectListHeader = memory.read(object_list_header_ptr);
-
-            if !(object_list_header.header_head == DEAH && object_list_header.header_tail == LIAT) {
-                return None;
-            }
-
-            let game_object: Object = memory.read(object_address);
-            game_object_entries[index] = Some(game_object);
-        }
-    }
-
-    // TODO: Find a way to sanity check this data
-    let player_globals: PlayersGlobals = memory.read(HALO_PLAYER_GLOBALS_ADDR);
-    let game_time_globals: GameTimeGlobals = memory.read(HALO_GAME_TIME_GLOBALS);
-
-    let mut map_name = String::default();
-    if game_globals.map_loaded == 1 {
-        if let Ok(local_map_name) = CStr::from_bytes_until_nul(&game_globals.game_options.map_name)
-        {
-            if let Ok(real_local_map_name) = local_map_name.to_str() {
-                map_name = real_local_map_name.to_string();
-            }
-        }
-    }
-    // Get tag index mappings to tag names
-    // Also store the tag entries
-    let mut tag_index_to_tag_entry: HashMap<u32, TagEntry> = HashMap::new();
-    let mut tag_index_to_str: HashMap<u32, String> = HashMap::new();
-
-    let tag_array_base_ptr = Memory::fix_pointer(tag_header.tag_array_ptr);
-    for index in 0..tag_header.tag_count {
-        let tag_entry_ptr = tag_array_base_ptr + (size_of::<TagEntry>() as u32 * index);
-        let tag_entry: TagEntry = memory.read(tag_entry_ptr);
-
-        // Also used for tag_index_to_tag_entry as both will be treated seperately but same.
-        if let std::collections::hash_map::Entry::Vacant(e) =
-            tag_index_to_str.entry(tag_entry.tag_index)
-        {
-            let tag_path_ptr = Memory::fix_pointer(tag_entry.tag_path_ptr);
-
-            if let Ok(value) = memory.read_str(tag_path_ptr) {
-                e.insert(value.to_string());
-            }
-
-            tag_index_to_tag_entry.insert(tag_entry.tag_index, tag_entry);
-        }
-    }
-
-    Some(EngineSnapshot {
+    Ok(EngineSnapshot {
         map_name,
-        object_header: object_manager,
-        object_header_entries: object_pool_entries,
-        object_entries: game_object_entries,
-        player_header: player_manager,
-        player_entries: player_pool_entries,
+        object_header,
+        object_header_entries,
+        object_entries,
+        player_header,
+        player_entries,
         player_globals,
         game_globals,
         game_time_globals,
-        tags: tag_index_to_str,
-        tag_entries: tag_index_to_tag_entry,
+        tags,
+        tag_entries,
     })
 }
