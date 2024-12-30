@@ -177,7 +177,7 @@ fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
             ui.table_setup_column("Object Type");
             ui.table_headers_row();
 
-            for index in 0..snapshot.object_header.max_entries as usize {
+            for index in (0..snapshot.object_header.max_entries as usize).rev() {
                 ui.table_next_row();
 
                 let is_row_valid = snapshot.object_entries[index].is_some();

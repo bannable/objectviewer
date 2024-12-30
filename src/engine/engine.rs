@@ -217,13 +217,13 @@ impl EngineSnapshot {
         None
     }
 
-    pub fn find_next_object_datum_player(&self, object_handle: Datum) -> Option<u16> {
-        for player_object_handle in self.player_globals.local_dead_players.iter() {
+    pub fn find_next_object_datum_player(&self, object_handle: Datum) -> Option<usize> {
+        for (player_array_index, player_object_handle) in self.player_globals.local_dead_players.iter().enumerate() {
             let player_index = player_object_handle.get_index();
             let object_index = object_handle.get_index();
 
             if player_index == object_index {
-                return Some(player_index);
+                return Some(player_array_index);
             }
         }
             
