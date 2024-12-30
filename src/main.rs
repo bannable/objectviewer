@@ -55,12 +55,12 @@ fn print_player(ui: &Ui, snapshot: &EngineSnapshot, player_index: u16) {
             }
     
             if !found {
-                ui.text_colored(ORANGE, format!("Position: None"));
+                ui.text_colored(ORANGE, "Position: None");
             }
         }
     } else { 
-        ui.text_colored(ORANGE, format!("Unit Handle: None"));
-        ui.text_colored(ORANGE, format!("Position: None"));
+        ui.text_colored(ORANGE, "Unit Handle: None");
+        ui.text_colored(ORANGE, "Position: None");
     }
 
     let handle = &snapshot.player_globals.local_dead_players[player_index as usize];
@@ -76,13 +76,13 @@ fn print_player(ui: &Ui, snapshot: &EngineSnapshot, player_index: u16) {
         }
 
         if !found {
-            ui.text_colored(ORANGE, format!("Next Datum Position: None"));
+            ui.text_colored(ORANGE, "Next Datum Position: None");
         }
     }
 
-    if let Some(_) = snapshot.player_entries[player_index as usize].as_ref() {
+    if snapshot.player_entries[player_index as usize].as_ref().is_some() {
     } else { 
-        ui.text_colored(ORANGE, format!("Last Unit Handle: None")) 
+        ui.text_colored(ORANGE, "Last Unit Handle: None") 
     }
 }
 
@@ -145,7 +145,7 @@ fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
         .begin();
 
 
-    if let None = snapshot {
+    if snapshot.is_none() {
         return;
     }
 
@@ -196,7 +196,7 @@ fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
     
                     ui.table_set_column_index(0);
     
-                    if ui.button(&"Set") {
+                    if ui.button("Set") {
                         draw_context.target_index = index as u32;
                     }
                     
@@ -205,10 +205,10 @@ fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
                     }
     
                     ui.table_next_column();
-                    ui.text_colored(if first_free_index as usize == index { ORANGE } else { GREEN }, format!("{}", datum_handle.get_handle()));
+                    ui.text_colored(if first_free_index == index { ORANGE } else { GREEN }, format!("{}", datum_handle.get_handle()));
     
                     ui.table_next_column();
-                    ui.text_colored(if first_free_index as usize == index { ORANGE } else { GREEN }, format!("{}", index));
+                    ui.text_colored(if first_free_index == index { ORANGE } else { GREEN }, format!("{}", index));
     
                     ui.table_next_column();
                     ui.text_colored(
@@ -226,13 +226,13 @@ fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
                     }
     
                     ui.table_next_column();
-                    let mut updated_position = game_object_entry.position.clone();
+                    let mut updated_position = game_object_entry.position;
     
                     if ui.input_float3(&"POS", &mut updated_position).build() {
                         let manager = draw_context.memory.as_mut().unwrap();
                         let game_object_pointer = Memory::fix_pointer(object_pool_entry.object_address);
     
-                        manager.write(game_object_pointer + 0xC, &updated_position.get(0).as_ref().expect("Could not write X position").to_le_bytes());
+                        manager.write(game_object_pointer + 0xC, &updated_position.first().as_ref().expect("Could not write X position").to_le_bytes());
                         manager.write(game_object_pointer + 0xC + 0x4, &updated_position.get(1).as_ref().expect("Could not write Y position").to_le_bytes());
                         manager.write(game_object_pointer + 0xC + 0x4 + 0x4, &updated_position.get(2).as_ref().expect("Could not write Z position").to_le_bytes());
                     }
@@ -245,7 +245,7 @@ fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
                 } else {
                     ui.table_set_column_index(0);
 
-                    if ui.button(&"Set") {
+                    if ui.button("Set") {
                         draw_context.target_index = index as u32;
                     }
 
@@ -257,7 +257,7 @@ fn draw(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawContext) {
                     ui.text("");
 
                     ui.table_next_column();
-                    ui.text_colored(if first_free_index as usize == index { ORANGE } else { RED }, format!("{}", index));
+                    ui.text_colored(if first_free_index == index { ORANGE } else { RED }, format!("{}", index));
 
                     ui.table_next_column();
                     ui.text("Free");
@@ -312,7 +312,7 @@ fn draw_attach(ui: &mut Ui, should_exit: &mut bool, draw_context: &mut DrawConte
         let sys = System::new_all();
         let processes: Vec<_> = sys.processes_by_exact_name(OsStr::new("xemu.exe")).collect();
 
-        if processes.len() == 0 {
+        if processes.is_empty() {
             ui.text("Could not find running instance of xemu.exe");
         } else if processes.len() > 1 {
             ui.text("Found multiple instances of xemu.exe running on the system. Please only have one instance running.");
